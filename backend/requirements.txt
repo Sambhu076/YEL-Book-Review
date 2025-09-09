@@ -1,0 +1,29 @@
+# Django Core
+Django==4.2.7
+djangorestframework==3.14.0
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# HTTP Requests (for AI API calls)
+requests==2.31.0
+
+# CORS Support (for frontend-backend communication)
+django-cors-headers==4.3.1
+
+# Database (if you want to use PostgreSQL later)
+# psycopg2-binary==2.9.7
+
+# Development Tools
+django-debug-toolbar==4.2.0
+
+livekit-agents
+livekit-plugins-openai
+livekit-plugins-silero
+livekit-plugins-google
+livekit-plugins-noise-cancellation
+mem0ai
+duckduckgo-search
+langchain_community
+requests
+python-dotenv
