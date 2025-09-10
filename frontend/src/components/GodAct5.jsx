@@ -19,7 +19,7 @@ export default function GodAct5() {
   const [currentUtterance, setCurrentUtterance] = useState(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
 
-  const ELEVENLABS_API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY;
+  const GOOGLE_TTS_API_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY;
   const VOICE_ID = 'pqHfZKP75CvOlQylNhV4';
 
   const {
@@ -111,41 +111,42 @@ export default function GodAct5() {
     setIsSpeaking(false);
   };
 
-  const speakWithElevenLabs = async (text, onEndCallback = () => { }) => {
-    try {
-      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`, {
-        method: 'POST',
-        headers: {
-          'Accept': 'audio/mpeg',
-          'Content-Type': 'application/json',
-          'xi-api-key': ELEVENLABS_API_KEY
-        },
-        body: JSON.stringify({
-          text: text,
-          model_id: 'eleven_monolingual_v1',
-          voice_settings: { stability: 0.6, similarity_boost: 0.7 }
-        })
-      });
+  const speakWithGoogleTTS = (text) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            input: { text },
+            voice: { languageCode: 'en-US', name: 'en-US-Standard-C', ssmlGender: 'FEMALE' },
+            audioConfig: { audioEncoding: 'MP3' },
+          }),
+        });
 
-      if (!response.ok) throw new Error(`ElevenLabs API error: ${response.status}`);
+        if (!response.ok) throw new Error(`Google TTS API error: ${response.status}`);
 
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
-      setCurrentAudio(audio);
+        const data = await response.json();
+        const audio = new Audio(`data:audio/mp3;base64,${data.audioContent}`);
+        setCurrentAudio(audio);
 
-      audio.onended = () => {
-        setIsSpeaking(false);
-        setCurrentAudio(null);
-        URL.revokeObjectURL(audioUrl);
-        onEndCallback();
-      };
-
-      await audio.play();
-    } catch (error) {
-      console.error('ElevenLabs TTS error:', error);
-      speakWithBrowserSynthesis(text, {}, onEndCallback);
-    }
+        audio.onended = () => {
+          setIsSpeaking(false);
+          setCurrentAudio(null);
+          resolve();
+        };
+        audio.onerror = (e) => {
+          setIsSpeaking(false);
+          setCurrentAudio(null);
+          reject(e);
+        };
+        await audio.play();
+      } catch (error) {
+        console.error('Google TTS error, falling back to browser synthesis:', error);
+        // Fallback to browser synthesis if Google TTS fails
+        speakWithBrowserSynthesis(text).then(resolve).catch(reject);
+      }
+    });
   };
 
   const speakWithBrowserSynthesis = (text, options = {}, onEndCallback = () => { }) => {
@@ -169,11 +170,11 @@ export default function GodAct5() {
     stopSpeaking();
     setIsSpeaking(true);
 
-    if (ELEVENLABS_API_KEY) {
-      speakWithElevenLabs(text, onEndCallback);
-      console.log("Attempting to use ElevenLabs for speech synthesis...");
+    if (GOOGLE_TTS_API_KEY) {
+      speakWithGoogleTTS(text, onEndCallback);
+      console.log("Attempting to use GoogleTTS for speech synthesis...");
     } else {
-      console.log("ElevenLabs API key not found. Using browser's native speech synthesis.");
+      console.log("GoogleTTS API key not found. Using browser's native speech synthesis.");
       speakWithBrowserSynthesis(text, {}, onEndCallback);
     }
   };

@@ -14,6 +14,7 @@ urlpatterns = [
     path('api/check-question6/', views.check_question6_answer, name='check_question6_answer'),
     path('api/check-goldilocks-favourite-character/', views.check_goldilocks_favourite_character_answer, name='check_goldilocks_favourite_character'),
     path('api/check-question8/', views.check_question8_answer, name='check_question8_answer'),
+    # path('api/livekit-token/', views.livekit_token, name='livekit_token'),
 
 
 ]

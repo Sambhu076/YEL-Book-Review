@@ -1,247 +1,109 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
-import { FaPlay, FaMicrophone, FaMicrophoneSlash, FaRocket } from "react-icons/fa";
+import { FaPlay, FaMicrophone, FaMicrophoneSlash, FaRocket, FaKeyboard } from "react-icons/fa";
+import {
+  LiveKitRoom,
+  RoomAudioRenderer,
+  useRoomContext,
+  useLocalParticipant,
+} from "@livekit/components-react";
+import "@livekit/components-styles";
 import Header from "./Header";
 
+// --- Main Component ---
 export default function GodAct1() {
   const navigate = useNavigate();
 
   // --- STATE MANAGEMENT ---
   const [activityStarted, setActivityStarted] = useState(false);
-  const [interactionStage, setInteractionStage] = useState('voice');
+  const [interactionStage, setInteractionStage] = useState('voice'); // 'voice' or 'text'
   const [typedAnswer, setTypedAnswer] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showAnswer, setShowAnswer] = useState(false);
-  const [showPlayButton, setShowPlayButton] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [currentAudio, setCurrentAudio] = useState(null);
-  const [isQuestionFinished, setIsQuestionFinished] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [currentUtterance, setCurrentUtterance] = useState(null);
-  
-  // --- CORRECTLY LOAD API KEYS ---
-  const GOOGLE_TTS_API_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY; 
 
-  const {
-    finalTranscript,
-    listening,
-    resetTranscript,
-  } = useSpeechRecognition();
+  // --- LiveKit State ---
+  const [liveKitToken, setLiveKitToken] = useState(null);
+  const [liveKitUrl, setLiveKitUrl] = useState(null);
+  const [isMicOn, setIsMicOn] = useState(false);
 
-  // --- AUTOMATION LOGIC ---
+  // --- Fetch LiveKit Token ---
   useEffect(() => {
-    return () => { SpeechRecognition.stopListening(); };
+    // Fetch the token when the component mounts so it's ready
+    const fetchToken = async () => {
+      try {
+        // NOTE: Make sure your Django server is running and accessible at this URL
+        const response = await fetch('http://localhost:8000/api/livekit-token/');
+        if (!response.ok) {
+          throw new Error('Failed to fetch LiveKit token');
+        }
+        const data = await response.json();
+        setLiveKitToken(data.token);
+        setLiveKitUrl(data.url);
+      } catch (error) {
+        console.error("LiveKit token fetch error:", error);
+        alert("Could not connect to the session. Please ensure the backend server is running.");
+      }
+    };
+    fetchToken();
   }, []);
 
-  useEffect(() => {
-    if (activityStarted && isQuestionFinished && !listening && interactionStage === 'voice') {
-      console.log("DEBUG: State updated. Starting to listen...");
-      SpeechRecognition.startListening({ continuous: false, language: 'en-US' });
-    }
-  }, [activityStarted, isQuestionFinished, listening, interactionStage]);
-
-  useEffect(() => {
-    if (finalTranscript && !isLoading) {
-      const capitalizedAnswer = finalTranscript.charAt(0).toUpperCase() + finalTranscript.slice(1);
-      submitAnswer(capitalizedAnswer, 'voice');
-    }
-  }, [finalTranscript, isLoading]);
-
-  // --- NEW: PROMISE-BASED AUDIO PLAYER ---
-  const playAudioFile = (src) => {
-    return new Promise((resolve, reject) => {
-      const audio = new Audio(src);
-      audio.onended = resolve;
-      audio.onerror = (e) => {
-        console.error(`Error playing audio file: ${src}`, e);
-        reject(e);
-      };
-      audio.play().catch(reject);
-    });
-  };
-
-  // --- AUDIO & HELPER FUNCTIONS ---
-  const stopSpeaking = () => {
-    if (currentAudio) {
-      currentAudio.pause();
-      currentAudio.currentTime = 0;
-      setCurrentAudio(null);
-    }
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    setCurrentUtterance(null);
-    setIsSpeaking(false);
-  };
-
-  const speakWithGoogleTTS = (text) => {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_API_KEY}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            input: { text },
-            voice: { languageCode: 'en-US', name: 'en-US-Standard-C', ssmlGender: 'FEMALE' },
-            audioConfig: { audioEncoding: 'MP3' },
-          }),
-        });
-
-        if (!response.ok) throw new Error(`Google TTS API error: ${response.status}`);
-
-        const data = await response.json();
-        const audio = new Audio(`data:audio/mp3;base64,${data.audioContent}`);
-        setCurrentAudio(audio);
-
-        audio.onended = () => {
-          setIsSpeaking(false);
-          setCurrentAudio(null);
-          resolve();
-        };
-        audio.onerror = (e) => {
-          setIsSpeaking(false);
-          setCurrentAudio(null);
-          reject(e);
-        };
-        await audio.play();
-      } catch (error) {
-        console.error('Google TTS error, falling back to browser synthesis:', error);
-        // Fallback to browser synthesis if Google TTS fails
-        speakWithBrowserSynthesis(text).then(resolve).catch(reject);
-      }
-    });
-  };
-  
-  const speakWithBrowserSynthesis = (text) => {
-    return new Promise((resolve, reject) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      setCurrentUtterance(utterance);
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        setCurrentUtterance(null);
-        resolve();
-      };
-      utterance.onerror = (event) => {
-        console.error('SpeechSynthesisUtterance.onerror', event);
-        setIsSpeaking(false);
-        setCurrentUtterance(null);
-        reject(event);
-      };
-      window.speechSynthesis.speak(utterance);
-    });
-  };
-
-  const speakText = async (text) => {
-    if (!voiceEnabled || !text) return;
-    stopSpeaking();
-    setIsSpeaking(true);
-
-    try {
-      if (GOOGLE_TTS_API_KEY) {
-        await speakWithGoogleTTS(text);
-      } else {
-        await speakWithBrowserSynthesis(text);
-      }
-    } catch (error) {
-      console.error("Failed to speak text:", error);
-      setIsSpeaking(false); // Ensure state is reset on error
-    }
-  };
-  
-  // --- ASYNC HANDLERS FOR SEQUENTIAL AUDIO ---
-  const handleStartActivity = async () => {
-    if (activityStarted) return;
+  // --- ACTIVITY START HANDLER ---
+  const handleStartActivity = () => {
+    if (activityStarted || !liveKitToken) return;
     setActivityStarted(true);
-    resetTranscript();
-    try {
-      await playAudioFile('/title_1.mp3');
-      console.log("DEBUG: Question audio finished.");
-      setIsQuestionFinished(true);
-    } catch (error) {
-      console.error("Failed to play start-up audio.", error);
-      setShowPlayButton(true);
-    }
+
+    const questionAudio = new Audio('/title_1.mp3');
+    questionAudio.play().catch(e => console.error("Error playing start audio:", e));
+
+    questionAudio.onended = () => {
+      // Automatically turn on the microphone after the question is asked
+      setIsMicOn(true);
+    };
   };
 
-  const submitAnswer = async (answer, submissionType) => {
-    SpeechRecognition.stopListening();
+  // --- TEXT SUBMISSION LOGIC (For typed answers) ---
+  const submitAnswer = async (answer) => {
     setIsLoading(true);
-    if (submissionType === 'text') {
-      setFeedback(null);
-    }
-
+    setFeedback(null);
     try {
       const response = await fetch('http://localhost:8000/api/check-question1/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answer: answer.trim() })
       });
-
       const data = await response.json();
-      if (!response.ok || data.error) throw new Error(data.error || 'An unknown error occurred.');
+      if (!response.ok) throw new Error(data.error || 'Submission failed');
 
-      if (submissionType === 'voice') {
-        // 1. Await the AI feedback speech
-        await speakText(data.message);
-        // 2. Set the stage
-        setInteractionStage('text');
-        // 3. Await the prompt to type
-        await playAudioFile('/input_audio.mp3');
-      } else {
-        setFeedback(data);
-        setShowAnswer(data.show_answer);
-        setTimeout(() => speakText(data.message), 300);
-      }
+      setFeedback(data);
+      setShowAnswer(data.show_answer);
+
     } catch (error) {
       console.error('Submission error:', error);
-      const errorFeedback = { message: error.message, isCorrect: false };
-      if (submissionType === 'text') {
-        setFeedback(errorFeedback);
-      } else {
-        await speakText(error.message);
-        setInteractionStage('text');
-      }
+      setFeedback({ message: error.message, isCorrect: false, misspelled_words: [] });
     } finally {
       setIsLoading(false);
-      resetTranscript();
     }
-  };
-  
-  const renderHighlightedText = (text, misspelled_words) => {
-    if (!misspelled_words || !Array.isArray(misspelled_words) || misspelled_words.length === 0) {
-      return text;
-    }
-    const regex = new RegExp(`(${misspelled_words.join('|')})`, 'gi');
-    const parts = text.split(regex);
-
-    return parts.map((part, index) =>
-      misspelled_words.some(word => word.toLowerCase() === part.toLowerCase())
-        ? <span key={index} style={{ backgroundColor: '#FFD700', borderRadius: '3px' }}>{part}</span>
-        : part
-    );
   };
 
   const handleTextSubmit = () => {
     if (typedAnswer.trim()) {
-      submitAnswer(typedAnswer, 'text');
+      submitAnswer(typedAnswer);
     }
   };
-
+  
   const handleProceedToNext = () => {
-    stopSpeaking();
     navigate('/GodAct2');
   };
 
   const handleTryAgain = () => {
-    stopSpeaking();
     setTypedAnswer('');
     setFeedback(null);
     setShowAnswer(false);
   };
 
   return (
+    
     <div style={{
       backgroundColor: "#f5f5f5",
       minHeight: "100vh",
@@ -249,7 +111,8 @@ export default function GodAct1() {
       flexDirection: "column",
       fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
     }}>
-       <style>{`
+
+      <style>{`
           @import url('https://fonts.googleapis.com/css2?family=Comic+Neue&display=swap');
           @import url('https://fonts.googleapis.com/css2?family=Sen:wght@400;600;800&display=swap');
           
@@ -341,7 +204,7 @@ export default function GodAct1() {
             top: 20px;
             right: 80px;
             display: none;
-            background: ${voiceEnabled ? '#28a745' : '#dc3545'};
+            background: #dc3545;
             border: none;
             border-radius: 20px;
             padding: 8px 16px;
@@ -400,6 +263,7 @@ export default function GodAct1() {
             border-radius: 15px;
             transition: transform 0.3s ease;
             object-fit: cover;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
           }
          
           .question-section {
@@ -872,114 +736,183 @@ export default function GodAct1() {
             }
           }
         `}</style>
+      
       <Header />
 
       <div className="banner-section">
         <img src="/b1.png" alt="Banner Background" className="banner-img" />
-        {showPlayButton && (
-          <button className="audio-play-button" onClick={() => playAudioFile('/title_1.mp3')}>
-            <FaPlay />
-          </button>
-        )}
       </div>
 
       <div className="main-content">
         <div className="book-image-section">
           <img src="/goldilocks.png" alt="Book Cover" className="book-cover" />
         </div>
+
         <div className="content-with-button">
           {!activityStarted ? (
             <div className="start-activity-section" style={{ textAlign: 'center' }}>
-              <button className="btn-proceed" onClick={handleStartActivity} style={{ fontSize: '18px', padding: '20px 40px' }}>
+              <button className="btn-proceed" onClick={handleStartActivity} disabled={!liveKitToken} style={{ fontSize: '18px', padding: '20px 40px' }}>
                 <FaRocket style={{ marginRight: '10px' }} />
-                Start Session
+                {liveKitToken ? 'Start Session' : 'Connecting...'}
               </button>
             </div>
           ) : (
-            <>
+            <LiveKitRoom
+              serverUrl={liveKitUrl}
+              token={liveKitToken}
+              connect={true}
+              audio={true}
+              video={false}
+            >
+              {/* This component plays audio from remote participants (i.e., the agent) */}
+              <RoomAudioRenderer />
+
               {interactionStage === 'voice' ? (
-                <div className="voice-input-section" style={{ textAlign: 'center', padding: '40px', background: 'white', borderRadius: '20px', boxShadow: '0 8px 25px rgba(0,0,0,0.1)' }}>
-                  {listening ? (
-                    <><FaMicrophone size={50} color="#23A7AC" style={{ marginBottom: '20px' }} /><p>Listening...</p></>
-                  ) : (
-                    <><FaMicrophoneSlash size={50} color="#6c757d" style={{ marginBottom: '20px' }} /><p>{isLoading ? 'Checking answer...' : 'Say your answer'}</p></>
-                  )}
-                </div>
+                <VoiceInputUI isMicOn={isMicOn} setIsMicOn={setIsMicOn} setInteractionStage={setInteractionStage} />
               ) : (
-                <>
-                  <div className="question-section">
-                    <div className="answer-field">
-                      <label className="field-label">Title</label>
-                      {!feedback ? (
-                        <input
-                          type="text"
-                          className="answer-input"
-                          placeholder="type answer here"
-                          value={typedAnswer}
-                          onChange={(e) => setTypedAnswer(e.target.value)}
-                          disabled={isLoading}
-                        />
-                      ) : (
-                        <div className="answer-input" style={{cursor: 'default', minHeight: '55px', padding: '18px 24px' }}>
-                          {renderHighlightedText(typedAnswer, feedback.misspelled_words)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {feedback && (
-                    <div className={`feedback-section ${feedback.isCorrect ? 'correct' : 'incorrect'}`}>
-                      <button
-                        className={`voice-replay-button ${isSpeaking ? 'speaking' : ''}`}
-                        onClick={() => {
-                          if (isSpeaking) {
-                            stopSpeaking();
-                          } else {
-                            let voiceText = feedback.message;
-                            if (feedback.correct_answer && showAnswer) {
-                              voiceText += ` The correct answer is: ${feedback.correct_answer}`;
-                            }
-                            speakText(voiceText);
-                          }
-                        }}
-                        title={isSpeaking ? "Stop speaking" : "Replay feedback"}
-                      >
-                        {isSpeaking ? '⏹️ Stop' : '🔊 Replay'}
-                      </button>
-                      <div className={`feedback-title ${feedback.isCorrect ? 'correct' : 'incorrect'}`}>
-                        {feedback.isCorrect ? '✓ Correct!' : '✗ Incorrect'}
-                      </div>
-                      <div className="feedback-message">{feedback.message}</div>
-                      {showAnswer && feedback.correct_answer && (
-                        <div className="correct-answer">
-                          <div className="correct-answer-title">Correct Answer:</div>
-                          <div className="correct-answer-text">{feedback.correct_answer}</div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="button-section">
-                    {!feedback ? (
-                      <button className="btn-next" onClick={handleTextSubmit} disabled={!typedAnswer.trim() || isLoading}>
-                        {isLoading ? 'CHECKING...' : 'CHECK ANSWER'}
-                      </button>
-                    ) : (
-                      <div style={{ display: 'flex', gap: '15px' }}>
-                        {!feedback.isCorrect && (<button className="btn-try-again" onClick={handleTryAgain}>TRY AGAIN</button>)}
-                        <button className="btn-proceed" onClick={handleProceedToNext}>NEXT QUESTION</button>
-                      </div>
-                    )}
-                  </div>
-                </>
+                <TextInputUI
+                  typedAnswer={typedAnswer}
+                  setTypedAnswer={setTypedAnswer}
+                  handleTextSubmit={handleTextSubmit}
+                  feedback={feedback}
+                  isLoading={isLoading}
+                  showAnswer={showAnswer}
+                  renderHighlightedText={renderHighlightedText}
+                  handleTryAgain={handleTryAgain}
+                  handleProceedToNext={handleProceedToNext}
+                  setInteractionStage={setInteractionStage}
+                />
               )}
-            </>
+            </LiveKitRoom>
           )}
         </div>
       </div>
+
       <div className="footer-section">
         <img src="/footer.png" alt="Footer" className="footer-img" />
       </div>
     </div>
   );
 }
+
+// --- Helper Component for Voice Input UI ---
+function VoiceInputUI({ isMicOn, setIsMicOn, setInteractionStage }) {
+  const { localParticipant } = useLocalParticipant();
+
+  useEffect(() => {
+    if (localParticipant) {
+      localParticipant.setMicrophoneEnabled(isMicOn);
+    }
+  }, [isMicOn, localParticipant]);
+
+  return (
+    <div className="voice-input-section" style={{ textAlign: 'center', padding: '40px', background: 'white', borderRadius: '20px', boxShadow: '0 8px 25px rgba(0,0,0,0.1)' }}>
+      {isMicOn ? (
+        <>
+          <FaMicrophone size={50} color="#23A7AC" style={{ marginBottom: '20px' }} />
+          <p>Listening... Say your answer.</p>
+          <p style={{fontSize: '12px', color: '#6c757d'}}>The agent will respond when you pause.</p>
+        </>
+      ) : (
+        <>
+          <FaMicrophoneSlash size={50} color="#6c757d" style={{ marginBottom: '20px' }} />
+          <p>Your microphone is off.</p>
+        </>
+      )}
+      <div style={{display: 'flex', justifyContent: 'center', gap: '15px', marginTop: '20px'}}>
+        <button onClick={() => setIsMicOn(!isMicOn)} className="btn-next">
+          {isMicOn ? 'Turn Off Mic' : 'Turn On Mic'}
+        </button>
+        <button onClick={() => setInteractionStage('text')} className="btn-try-again" title="Switch to typing">
+          <FaKeyboard />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// --- Helper Component for Text Input UI ---
+function TextInputUI({
+    typedAnswer, setTypedAnswer, handleTextSubmit, feedback, isLoading,
+    showAnswer, renderHighlightedText, handleTryAgain, handleProceedToNext, setInteractionStage
+}) {
+  return (
+    <>
+      <div className="question-section">
+        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+          <label className="field-label">Title</label>
+          <button onClick={() => setInteractionStage('voice')} className="btn-try-again" title="Switch to voice input" style={{padding: '8px 12px'}}>
+              <FaMicrophone />
+          </button>
+        </div>
+        {!feedback ? (
+          <input
+            type="text"
+            className="answer-input"
+            placeholder="type answer here"
+            value={typedAnswer}
+            onChange={(e) => setTypedAnswer(e.target.value)}
+            disabled={isLoading}
+          />
+        ) : (
+          <div className="answer-input" style={{ cursor: 'default', minHeight: '55px', padding: '18px 24px' }}>
+            {renderHighlightedText(typedAnswer, feedback.misspelled_words)}
+          </div>
+        )}
+      </div>
+
+      {feedback && (
+        <div className={`feedback-section ${feedback.isCorrect ? 'correct' : 'incorrect'}`}>
+          <div className={`feedback-title ${feedback.isCorrect ? 'correct' : 'incorrect'}`}>
+            {feedback.isCorrect ? '✓ Correct!' : '✗ Incorrect'}
+          </div>
+          <div className="feedback-message">{feedback.message}</div>
+          {showAnswer && feedback.correct_answer && (
+            <div className="correct-answer">
+              <div className="correct-answer-title">Correct Answer:</div>
+              <div className="correct-answer-text">{feedback.correct_answer}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="button-section">
+        {!feedback ? (
+          <button
+            className="btn-next"
+            onClick={handleTextSubmit}
+            disabled={!typedAnswer.trim() || isLoading}
+          >
+            {isLoading ? 'CHECKING...' : 'CHECK ANSWER'}
+          </button>
+        ) : (
+          <div style={{ display: 'flex', gap: '15px' }}>
+            {!feedback.isCorrect && (
+              <button className="btn-try-again" onClick={handleTryAgain}>
+                TRY AGAIN
+              </button>
+            )}
+            <button className="btn-proceed" onClick={handleProceedToNext}>
+              NEXT QUESTION
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// --- Helper function for highlighting misspelled words ---
+const renderHighlightedText = (text, misspelled_words) => {
+  if (!misspelled_words || !Array.isArray(misspelled_words) || misspelled_words.length === 0) {
+    return text;
+  }
+  const regex = new RegExp(`(${misspelled_words.join('|')})`, 'gi');
+  const parts = text.split(regex);
+
+  return parts.map((part, index) =>
+    misspelled_words.some(word => word.toLowerCase() === part.toLowerCase())
+      ? <span key={index} style={{ backgroundColor: '#FFD700', borderRadius: '3px' }}>{part}</span>
+      : part
+  );
+};
